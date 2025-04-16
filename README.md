@@ -87,7 +87,7 @@ curl -X DELETE http://localhost:36379/cache/mykey_noexpire
 
 django에서 Bigcache를 사용하기 위해서는 다음과 같은 단계를 따르면 됩니다.
 
-django_example/big_cache.py 파일을 참고하여 django 프로젝트에 추가합니다.
+django_example/big_cache.py 파일을 참고하여 django 프로젝트에 Connector 역할을 하는 BigCache 클래스를 추가합니다.
 
 cache를 사용하려는 views 함수에 다음과 같이 적용합니다.
 
