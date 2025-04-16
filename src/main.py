@@ -13,7 +13,7 @@ db = plyvel.DB(db_path, create_if_missing=True)
 
 
 class CacheItem(BaseModel):
-    value: dict
+    value: object
     expire: Optional[float] = None  # 만료 시간 (Unix timestamp)
     duration: Optional[str] = None  # 유효 기간 (예: '10s', '1m', '1d')
 
@@ -28,16 +28,16 @@ class CacheItem(BaseModel):
                 raise ValueError(
                     "유효하지 않은 만료 시간 형식입니다. (예: '10s', '1m', '1d')"
                 )
-            value, unit = match.groups()
-            value = int(value)
+            num, unit = match.groups()
+            num = int(num)
             if unit == "s":
-                return time.time() + value
+                return time.time() + num
             elif unit == "m":
-                return time.time() + value * 60
+                return time.time() + num * 60
             elif unit == "h":
-                return time.time() + value * 3600
+                return time.time() + num * 3600
             elif unit == "d":
-                return time.time() + value * 86400
+                return time.time() + num * 86400
         except Exception as e:
             raise ValueError(f"만료 시간 처리 오류: {e}")
 
@@ -52,7 +52,7 @@ class CacheItem(BaseModel):
         # return data
 
 
-@app.post("/cache/{key}")
+@app.post("/cache/{key:path}")
 async def set_cache(key: str, item: CacheItem):
     """캐시에 키-값 쌍을 저장합니다."""
     try:
@@ -64,7 +64,7 @@ async def set_cache(key: str, item: CacheItem):
         raise HTTPException(status_code=500, detail=f"캐시 저장 오류: {e}")
 
 
-@app.get("/cache/{key}")
+@app.get("/cache/{key:path}")
 async def get_cache(key: str):
     """캐시에서 키에 해당하는 값을 조회합니다."""
     try:
@@ -92,7 +92,7 @@ async def get_cache(key: str):
         raise HTTPException(status_code=500, detail=f"캐시 조회 오류: {e}")
 
 
-@app.delete("/cache/{key}")
+@app.delete("/cache/{key:path}")
 async def delete_cache(key: str):
     """캐시에서 키에 해당하는 데이터를 삭제합니다."""
     try:
