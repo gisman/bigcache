@@ -4,6 +4,7 @@
     // 자세한 내용을 보려면 https://go.microsoft.com/fwlink/?linkid=830387을(를) 방문하세요.
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "Deubg Server on 36399, /disk/ssd2t/bigcache_debug",
             "type": "debugpy",
@@ -19,6 +20,15 @@
             "program": "${workspaceFolder}/src/main.py",
             "console": "integratedTerminal",
             "args": ["--port=36379", "--db_path=/disk/ssd2t/bigcache"]
+        },
+        {
+            "name": "Run Pytest",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${workspaceFolder}/src/tests/test_main.py"],
+            "console": "integratedTerminal",
+            "justMyCode": true
         }
     ]
 }

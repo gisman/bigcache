@@ -1,3 +1,5 @@
 /venv
 nohup.out
 log/bigcache.log
+__pycache__
+.vscode/launch.json

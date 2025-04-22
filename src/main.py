@@ -15,8 +15,7 @@ hit_stats = {
     "miss": 0,
     "expire": 0,
 }
-# db_path = "/disk/ssd2t/bigcache"
-# db = plyvel.DB(db_path, create_if_missing=True)
+db = None
 
 
 class CacheItem(BaseModel):
@@ -67,7 +66,7 @@ async def set_cache(key: str, item: CacheItem):
         value_to_store = item.model_dump_json().encode()
         # value_to_store = json.dumps(item.model_dump_json()).encode()
         key = key.lstrip("/").rstrip("/")  # 선행 / 제거, 뒤의 /도 제거
-        db.put(key.encode(), value_to_store)
+        app.db.put(key.encode(), value_to_store)
         return {"key": key, "value": item.value, "expire": item.expire}
     except plyvel.Error as e:
         raise HTTPException(status_code=500, detail=f"캐시 저장 오류: {e}")
@@ -79,7 +78,7 @@ async def get_cache(key: str):
     try:
         # 선행 / 제거, 뒤의 /도 제거
         key = key.lstrip("/").rstrip("/")
-        value_bytes = db.get(key.encode())
+        value_bytes = app.db.get(key.encode())
         if value_bytes:
             item = CacheItem.model_validate_json(value_bytes.decode())
             # item = CacheItem.model_validate_json(json.loads(value_bytes.decode()))
@@ -94,7 +93,7 @@ async def get_cache(key: str):
             else:
                 # 만료된 데이터 삭제
                 hit_stats["expire"] += 1
-                db.delete(key.encode())
+                app.db.delete(key.encode())
                 raise HTTPException(
                     status_code=404, detail="캐시된 데이터가 만료되었습니다."
                 )
@@ -117,8 +116,8 @@ async def get_stats():
 async def delete_cache(key: str):
     """캐시에서 키에 해당하는 데이터를 삭제합니다."""
     try:
-        if db.get(key.encode()) is not None:
-            db.delete(key.encode())
+        if app.db.get(key.encode()) is not None:
+            app.db.delete(key.encode())
             return {"message": f"키 '{key}'가 캐시에서 삭제되었습니다."}
         else:
             raise HTTPException(
@@ -126,6 +125,17 @@ async def delete_cache(key: str):
             )
     except plyvel.Error as e:
         raise HTTPException(status_code=500, detail=f"캐시 삭제 오류: {e}")
+
+
+def connect_db(db_path: str):
+    """데이터베이스에 연결합니다."""
+    try:
+        db_path = db_path
+        os.makedirs(db_path, exist_ok=True)  # 디렉토리 생성
+        db = plyvel.DB(db_path, create_if_missing=True)
+        return db
+    except plyvel.Error as e:
+        raise HTTPException(status_code=500, detail=f"DB 연결 오류: {e}")
 
 
 if __name__ == "__main__":
@@ -143,9 +153,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 2. 동적으로 db_path 설정
-    db_path = args.db_path
-    os.makedirs(db_path, exist_ok=True)  # 디렉토리 생성
-    db = plyvel.DB(db_path, create_if_missing=True)
+    app.db = connect_db(args.db_path)
 
     # 3. FastAPI 애플리케이션 실행
     uvicorn.run(app, host="0.0.0.0", port=args.port)
