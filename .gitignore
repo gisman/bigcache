@@ -1,1 +1,4 @@
 /venv
+nohup.out
+start.sh
+log/bigcache.log

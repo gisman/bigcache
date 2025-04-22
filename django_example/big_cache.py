@@ -1,8 +1,8 @@
 import datetime
 import time
 import requests
-
 from datetime import datetime
+from django.http import HttpResponse
 
 
 class BigCache:
@@ -35,8 +35,6 @@ class BigCache:
         if version:
             key = f"{key}:{version}"
         url = self.big_cache_url + key
-
-        from django.http import HttpResponse
 
         if isinstance(value, HttpResponse):
             value = value.rendered_content
