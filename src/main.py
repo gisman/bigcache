@@ -8,9 +8,10 @@ from fastapi import FastAPI, HTTPException
 import plyvel
 from typing import Optional
 from pydantic import BaseModel, field_validator
+import asyncio
 
 app = FastAPI()
-hit_stats = {
+hit_stats: dict = {
     "hit": 0,
     "miss": 0,
     "expire": 0,
@@ -66,10 +67,26 @@ async def set_cache(key: str, item: CacheItem):
         value_to_store = item.model_dump_json().encode()
         # value_to_store = json.dumps(item.model_dump_json()).encode()
         key = key.lstrip("/").rstrip("/")  # 선행 / 제거, 뒤의 /도 제거
-        app.db.put(key.encode(), value_to_store)
+
+        # app.db.put(key.encode(), value_to_store)
+        # 블로킹 작업을 별도의 스레드에서 실행
+        await asyncio.to_thread(app.db.put, key.encode(), value_to_store)
+
         return {"key": key, "value": item.value, "expire": item.expire}
     except plyvel.Error as e:
         raise HTTPException(status_code=500, detail=f"캐시 저장 오류: {e}")
+
+
+# @app.get("/stat/count")
+# async def get_count():
+#     """캐시된 데이터의 개수를 조회합니다."""
+#     try:
+#         count = 0
+#         for _ in app.db.iterator():
+#             count += 1
+#         return {"count": count}
+#     except plyvel.Error as e:
+#         raise HTTPException(status_code=500, detail=f"캐시 개수 조회 오류: {e}")
 
 
 @app.get("/cache/{key:path}")
@@ -78,7 +95,8 @@ async def get_cache(key: str):
     try:
         # 선행 / 제거, 뒤의 /도 제거
         key = key.lstrip("/").rstrip("/")
-        value_bytes = app.db.get(key.encode())
+        value_bytes = await asyncio.to_thread(app.db.get, key.encode())
+
         if value_bytes:
             item = CacheItem.model_validate_json(value_bytes.decode())
             # item = CacheItem.model_validate_json(json.loads(value_bytes.decode()))
@@ -93,7 +111,7 @@ async def get_cache(key: str):
             else:
                 # 만료된 데이터 삭제
                 hit_stats["expire"] += 1
-                app.db.delete(key.encode())
+                await asyncio.to_thread(app.db.delete, key.encode())
                 raise HTTPException(
                     status_code=404, detail="캐시된 데이터가 만료되었습니다."
                 )
@@ -109,15 +127,34 @@ async def get_cache(key: str):
 @app.get("/stat")
 async def get_stats():
     """Hit 및 Miss 통계를 조회합니다."""
-    return {"stats": hit_stats}
+
+    stats = hit_stats.copy()
+    hit_rate = (
+        hit_stats["hit"] / (hit_stats["hit"] + hit_stats["miss"])
+        if (hit_stats["hit"] + hit_stats["miss"]) > 0
+        else 0
+    )
+    stats["hit_rate"] = f"{hit_rate * 100:.2f}%"
+    return {"stats": stats}
+
+
+@app.get("/stat/count")
+async def get_count():
+    """캐시된 데이터의 개수를 조회합니다."""
+    try:
+        # 블로킹 작업을 별도의 스레드에서 실행
+        count = await asyncio.to_thread(lambda: sum(1 for _ in app.db.iterator()))
+        return {"count": count}
+    except plyvel.Error as e:
+        raise HTTPException(status_code=500, detail=f"캐시 개수 조회 오류: {e}")
 
 
 @app.delete("/cache/{key:path}")
 async def delete_cache(key: str):
     """캐시에서 키에 해당하는 데이터를 삭제합니다."""
     try:
-        if app.db.get(key.encode()) is not None:
-            app.db.delete(key.encode())
+        if await asyncio.to_thread(app.db.get, key.encode()) is not None:
+            await asyncio.to_thread(app.db.delete, key.encode())
             return {"message": f"키 '{key}'가 캐시에서 삭제되었습니다."}
         else:
             raise HTTPException(
