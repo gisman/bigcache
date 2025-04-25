@@ -124,6 +124,32 @@ async def get_cache(key: str):
         raise HTTPException(status_code=500, detail=f"캐시 조회 오류: {e}")
 
 
+@app.get("/close")
+async def get_close():
+    """DB 연결을 종료합니다."""
+    try:
+        # 블로킹 작업을 별도의 스레드에서 실행
+        await asyncio.to_thread(app.db.close)
+        return {"message": "DB 연결이 종료되었습니다."}
+    except plyvel.Error as e:
+        raise HTTPException(status_code=500, detail=f"DB 종료 오류: {e}")
+
+
+@app.get("/clear")
+async def get_clear():
+    """캐시를 모두 삭제합니다."""
+    try:
+        # 블로킹 작업을 별도의 스레드에서 실행
+        app.db.close()
+        os.remove(app.db.path)  # DB 파일 삭제
+
+        # await asyncio.to_thread(app.db.close)
+        app.db = connect_db(app.db.path)  # DB 재연결
+        return {"message": "모든 캐시가 삭제되었습니다."}
+    except plyvel.Error as e:
+        raise HTTPException(status_code=500, detail=f"캐시 삭제 오류: {e}")
+
+
 @app.get("/stat")
 async def get_stats():
     """Hit 및 Miss 통계를 조회합니다."""
@@ -153,6 +179,7 @@ async def get_count():
 async def delete_cache(key: str):
     """캐시에서 키에 해당하는 데이터를 삭제합니다."""
     try:
+        key = key.lstrip("/").rstrip("/")  # 선행 / 제거, 뒤의 /도 제거
         if await asyncio.to_thread(app.db.get, key.encode()) is not None:
             await asyncio.to_thread(app.db.delete, key.encode())
             return {"message": f"키 '{key}'가 캐시에서 삭제되었습니다."}
