@@ -249,6 +249,46 @@ async def delete_cache(key: str):
         raise HTTPException(status_code=500, detail=f"캐시 삭제 오류: {e}")
 
 
+def _delete_prefix(prefix: str):
+    BATCH_SIZE = 1000  # 배치 크기
+    # 이터레이터를 사용하여 해당 접두사로 시작하는 키를 찾고 즉시 삭제합니다.
+    deleted_count = 0
+    with app.state.db.write_batch() as wb:
+        for key in app.state.db.iterator(start=prefix, include_value=False):
+            if key.startswith(prefix):
+                wb.delete(key)
+                print(f"Deleted key: {key.decode()}")
+                deleted_count += 1
+                if deleted_count % BATCH_SIZE == 0:
+                    wb.write()  # 배치 쓰기
+                    print(
+                        f"Successfully deleted {BATCH_SIZE} keys matching '{prefix.decode()}'"
+                    )
+            else:
+                break  # 더 이상 일치하는 키가 없으면 순회 종료
+
+    return deleted_count
+
+
+@app.delete("/prefix/{prefix:path}")
+async def delete_prefix(prefix: str):
+    """캐시에서 패턴에 해당하는 데이터를 삭제합니다."""
+    deleted_count = 0
+    prefix = prefix.encode()  # 접두사를 바이트로 인코딩
+    if not prefix:
+        raise HTTPException(status_code=400, detail="접두사가 비어 있습니다.")
+
+    try:
+        deleted_count = await asyncio.to_thread(_delete_prefix, prefix)
+
+        hit_stats["delete"] += deleted_count
+        return {
+            "message": f"키 prefix '{prefix.decode()}' {deleted_count}개가 캐시에서 삭제되었습니다."
+        }
+    except plyvel.Error as e:
+        raise HTTPException(status_code=500, detail=f"캐시 삭제 오류: {e}")
+
+
 if __name__ == "__main__":
     # 1. 명령줄 인자 처리
     parser = argparse.ArgumentParser(description="Run the FastAPI application.")
