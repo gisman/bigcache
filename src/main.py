@@ -126,18 +126,6 @@ async def set_pickle(key: str, request: Request):
         raise HTTPException(status_code=500, detail=f"캐시 저장 오류: {e}")
 
 
-# @app.get("/stat/count")
-# async def get_count():
-#     """캐시된 데이터의 개수를 조회합니다."""
-#     try:
-#         count = 0
-#         for _ in app.state.db.iterator():
-#             count += 1
-#         return {"count": count}
-#     except plyvel.Error as e:
-#         raise HTTPException(status_code=500, detail=f"캐시 개수 조회 오류: {e}")
-
-
 @app.get("/pickle/{key:path}")
 async def get_pickle(key: str):
     """캐시에서 키에 해당하는 값을 조회합니다."""
