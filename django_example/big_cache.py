@@ -1,16 +1,24 @@
 import datetime
 import time
 import requests
+import pickle
+
 from datetime import datetime
-from django.http import HttpResponse
 
 
 class BigCache:
-    # big_cache_url = "http://localhost:36379/cache/"  # settings.WACKAN_CACHE_URL
-
     def __init__(self, location) -> None:
         self.big_cache_url = location
         # pass
+
+    def unpickle(self, key: str) -> None:
+        url = self.big_cache_url.replace("cache", "pickle") + key
+
+        resp = requests.get(url)
+        if resp.status_code != 200:
+            return None
+
+        return pickle.loads(resp.content)
 
     def get(self, key: str, version=None) -> bytes | None:
         if version:
@@ -24,6 +32,16 @@ class BigCache:
 
         return resp.json()["value"]
 
+    def pickle(self, key: str, page) -> None:
+        url = self.big_cache_url.replace("cache", "pickle") + key
+
+        try:
+            # JSON 데이터를 POST 요청으로 전송
+            response = requests.post(url, data=pickle.dumps(page))
+            response.raise_for_status()  # 요청 실패 시 예외 발생
+        except requests.exceptions.RequestException as e:
+            print(f"Error setting cache: {e}")
+
     def set(
         self,
         key: str,
@@ -35,6 +53,8 @@ class BigCache:
         if version:
             key = f"{key}:{version}"
         url = self.big_cache_url + key
+
+        from django.http import HttpResponse
 
         if isinstance(value, HttpResponse):
             value = value.rendered_content
@@ -63,7 +83,7 @@ class BigCache:
 
         try:
             # JSON 데이터를 POST 요청으로 전송
-            response = requests.post(url, json=payload)
+            response = requests.post(url, json=payload, timeout=2)
             response.raise_for_status()  # 요청 실패 시 예외 발생
         except requests.exceptions.RequestException as e:
             print(f"Error setting cache: {e}")
