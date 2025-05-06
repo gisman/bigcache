@@ -204,6 +204,26 @@ async def get_pickle(key: str):
         raise HTTPException(status_code=500, detail="cache get error")
 
 
+@app.delete("/pickle/{key:path}")
+async def delete_pickle(key: str):
+    """캐시에서 키에 해당하는 데이터를 삭제합니다.
+    Deletes a specific key-value pair from the cache.
+    """
+    try:
+        key = key.lstrip("/").rstrip("/")  # 선행 / 제거, 뒤의 /도 제거
+        if await asyncio.to_thread(app.state.db.get, key.encode()) is not None:
+            await asyncio.to_thread(app.state.db.delete, key.encode())
+            hit_stats["delete"] += 1
+            # return {"message": f"키 '{key}'가 캐시에서 삭제되었습니다."}
+            return {"message": f"'{key}' removed from cache."}
+        else:
+            raise HTTPException(
+                status_code=404, detail="cannot find cache data to delete"
+            )
+    except plyvel.Error as e:
+        raise HTTPException(status_code=500, detail="cache delete error")
+
+
 @app.get("/cache/{key:path}")
 async def get_cache(key: str):
     """캐시에서 키에 해당하는 값을 조회합니다.
