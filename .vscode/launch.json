@@ -4,7 +4,22 @@
     // 자세한 내용을 보려면 https://go.microsoft.com/fwlink/?linkid=830387을(를) 방문하세요.
     "version": "0.2.0",
     "configurations": [
-
+        {
+            "name": "uvicorn src.main:app --host=0.0.0.0 --port=36399 --reload",
+            "type": "python",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "src.main:app",
+                "--host=0.0.0.0",
+                "--port=36399",
+                "--workers=1",
+                "--reload"
+            ],
+            "env": {
+                "DB_PATH": "/disk/ssd2t/bigcache_debug"
+            },
+        },
         {
             "name": "Deubg Server on 36399, /disk/ssd2t/bigcache_debug",
             "type": "debugpy",

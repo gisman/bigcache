@@ -65,6 +65,7 @@ from pydantic import BaseModel, field_validator
 import asyncio
 from fastapi import FastAPI, HTTPException, Request, Response
 from contextlib import asynccontextmanager
+import httpx
 
 
 async def connect_db(db_path: str):
@@ -285,6 +286,47 @@ async def get_stats():
     )
     stats["hit_rate"] = f"{hit_rate * 100:.2f}%"
     return {"stats": stats}
+
+
+@app.get("/build")
+async def build():
+    """Cache all items in the ckan"""
+    offset = 0
+    while True:
+        print(f"offset: {offset}")
+        url = "https://catalog.gimi9.com/api/3/action/package_list?limit=10000"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{url}&offset={offset}")
+            if response.status_code == 200:
+                result = response.json()
+                all_dataset = result.get("result", [])
+            else:
+                raise HTTPException(
+                    status_code=response.status_code, detail="Failed to fetch data"
+                )
+        if not all_dataset:
+            break
+
+        for dataset in all_dataset:
+            key = f"dataset_page/{dataset}"
+
+            if await asyncio.to_thread(app.state.db.get, key.encode()) is not None:
+                print(f"key: {key} already exists")
+                continue
+            url = f"https://gimi9.com/dataset/{dataset}/"
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url)
+                    if response.status_code == 200:
+                        print(dataset)
+                    else:
+                        print(f"Failed to fetch data for {dataset}")
+            except httpx.ConnectTimeout as e:
+                print(f"ConnectTimeout for {url}")
+            except httpx.HTTPError as e:
+                print(f"HTTPError for {url}")
+
+        offset += 10000
 
 
 @app.get("/stat/count")
