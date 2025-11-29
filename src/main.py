@@ -1,4 +1,6 @@
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 
 """
 This script implements a FastAPI-based caching service with LevelDB as the backend.
@@ -68,16 +70,55 @@ from contextlib import asynccontextmanager
 import httpx
 
 
+# 로거 설정
+def setup_logger():
+    """로거를 설정하고 파일 핸들러를 추가합니다."""
+    log_dir = "./log"
+    os.makedirs(log_dir, exist_ok=True)
+
+    logger = logging.getLogger("bigcache")
+    logger.setLevel(logging.INFO)
+
+    # 이미 핸들러가 있으면 설정하지 않음 (중복 방지)
+    if logger.handlers:
+        return logger
+
+    # RotatingFileHandler: 파일 크기가 10MB를 넘으면 백업하고 최대 5개 파일 유지
+    handler = RotatingFileHandler(
+        f"{log_dir}/bigcache.log",
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+
+    # 로그 포맷 설정
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    handler.setFormatter(formatter)
+
+    logger.addHandler(handler)
+    return logger
+
+
+# 전역 로거 인스턴스
+logger = setup_logger()
+
+
 async def connect_db(db_path: str):
     """데이터베이스에 연결합니다.
     Connects to the LevelDB database at the specified path.
     """
     try:
+        logger.info(f"Attempting to connect to database at: {db_path}")
         db_path = db_path
         os.makedirs(db_path, exist_ok=True)  # 디렉토리 생성
         db = plyvel.DB(db_path, create_if_missing=True)
+        logger.info(f"Successfully connected to database at: {db_path}")
         return db
     except plyvel.Error as e:
+        logger.error(f"DB connection error: {e}")
         raise HTTPException(status_code=500, detail=f"DB 연결 오류: {e}")
 
 
@@ -147,6 +188,7 @@ async def set_cache(key: str, item: CacheItem):
     Stores JSON data in the cache with an expiration time. Suitable for HTML.
     """
     try:
+        logger.info(f"Setting cache for key: {key}")
         item.parse_duration()
         value_to_store = item.model_dump_json().encode()
         # value_to_store = json.dumps(item.model_dump_json()).encode()
@@ -155,9 +197,11 @@ async def set_cache(key: str, item: CacheItem):
         # app.state.db.put(key.encode(), value_to_store)
         # 블로킹 작업을 별도의 스레드에서 실행
         await asyncio.to_thread(app.state.db.put, key.encode(), value_to_store)
+        logger.info(f"Successfully set cache for key: {key}")
 
         return {"key": key, "value": item.value, "expire": item.expire}
     except plyvel.Error as e:
+        logger.error(f"Cache save error for key {key}: {e}")
         raise HTTPException(status_code=500, detail=f"캐시 저장 오류: {e}")
 
 
@@ -168,6 +212,7 @@ async def set_pickle(key: str, request: Request):
     Stores raw binary data in the cache without expiration. Suitable for Pickle."""
 
     try:
+        logger.info(f"Setting pickle cache for key: {key}")
         body = await request.body()
         # item.parse_duration()
         value_to_store = body
@@ -177,9 +222,11 @@ async def set_pickle(key: str, request: Request):
         # 블로킹 작업을 별도의 스레드에서 실행
         # run blocking I/O in a separate thread
         await asyncio.to_thread(app.state.db.put, key.encode(), value_to_store)
+        logger.info(f"Successfully set pickle cache for key: {key}")
 
         return {"key": key, "expire": "not set"}
     except plyvel.Error as e:
+        logger.error(f"Pickle cache save error for key {key}: {e}")
         raise HTTPException(status_code=500, detail="cache save error")
 
 
@@ -196,11 +243,14 @@ async def get_pickle(key: str):
 
         if value_bytes:
             hit_stats["hit"] += 1
+            logger.info(f"Pickle cache hit for key: {key}")
             return Response(content=value_bytes)
         else:
             hit_stats["miss"] += 1
+            logger.info(f"Pickle cache miss for key: {key}")
             raise HTTPException(status_code=404, detail="cache miss")
     except plyvel.Error as e:
+        logger.error(f"Pickle cache get error for key {key}: {e}")
         raise HTTPException(status_code=500, detail="cache get error")
 
 
@@ -239,6 +289,7 @@ async def get_cache(key: str):
 
             if item.expire is None or item.expire > time.time():
                 hit_stats["hit"] += 1
+                logger.info(f"Cache hit for key: {key}")
                 return {
                     "key": key,
                     "value": item.value,
@@ -249,16 +300,19 @@ async def get_cache(key: str):
                 # 만료된 데이터 삭제
                 # remove expired data
                 hit_stats["expire"] += 1
+                logger.info(f"Cache expired for key: {key}")
                 await asyncio.to_thread(app.state.db.delete, key.encode())
                 raise HTTPException(
                     status_code=404, detail="캐시된 데이터가 만료되었습니다.(expired)"
                 )
         else:
             hit_stats["miss"] += 1
+            logger.info(f"Cache miss for key: {key}")
             raise HTTPException(
                 status_code=404, detail="캐시된 데이터를 찾을 수 없습니다.(miss)"
             )
     except plyvel.Error as e:
+        logger.error(f"Cache get error for key {key}: {e}")
         raise HTTPException(status_code=500, detail="캐시 조회 오류")
 
 
@@ -268,11 +322,14 @@ async def get_close():
     Closes the database connection.
     """
     try:
+        logger.info("Closing database connection")
         # 블로킹 작업을 별도의 스레드에서 실행
         await asyncio.to_thread(app.state.db.close)
         app.state.db = None
+        logger.info("Database connection closed successfully")
         return {"message": "DB connection closed."}
     except plyvel.Error as e:
+        logger.error(f"DB close error: {e}")
         raise HTTPException(status_code=500, detail="DB close error")
 
 
@@ -282,13 +339,16 @@ async def get_clear():
     Deletes all cached data and resets the database.
     """
     try:
+        logger.info("Clearing all cache")
         app.state.db.close()
         os.remove(app.state.db.path)  # DB 파일 삭제
 
         # await asyncio.to_thread(app.state.db.close)
         app.state.db = connect_db(app.state.db.path)  # DB 재연결
+        logger.info("All cache cleared successfully")
         return {"message": "All cache deleted."}
     except plyvel.Error as e:
+        logger.error(f"Cache clear error: {e}")
         raise HTTPException(status_code=500, detail="Cache clear error")
 
 
@@ -373,13 +433,16 @@ async def delete_cache(key: str):
         if await asyncio.to_thread(app.state.db.get, key.encode()) is not None:
             await asyncio.to_thread(app.state.db.delete, key.encode())
             hit_stats["delete"] += 1
+            logger.info(f"Deleted cache for key: {key}")
             # return {"message": f"키 '{key}'가 캐시에서 삭제되었습니다."}
             return {"message": f"'{key}' removed from cache."}
         else:
+            logger.warning(f"Cannot find cache data to delete for key: {key}")
             raise HTTPException(
                 status_code=404, detail="cannot find cache data to delete"
             )
     except plyvel.Error as e:
+        logger.error(f"Cache delete error for key {key}: {e}")
         raise HTTPException(status_code=500, detail="cache delete error")
 
 
@@ -418,14 +481,17 @@ async def delete_prefix(prefix: str):
         raise HTTPException(status_code=400, detail="prefix is empty")
 
     try:
+        logger.info(f"Deleting cache with prefix: {prefix.decode()}")
         # run long blocking I/O in a separate thread
         deleted_count = await asyncio.to_thread(_delete_prefix, prefix)
 
         hit_stats["delete"] += deleted_count
+        logger.info(f"Deleted {deleted_count} keys with prefix: {prefix.decode()}")
         return {
             "message": f"prefix '{prefix.decode()}': {deleted_count} keys deleted.",
         }
     except plyvel.Error as e:
+        logger.error(f"Cache delete error for prefix {prefix.decode()}: {e}")
         raise HTTPException(status_code=500, detail="cache delete error")
 
 
